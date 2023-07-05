@@ -1,12 +1,15 @@
 import os
+
+import torch
 import cv2
+import torchvision.transforms as transforms
 
 def rotate_image(image):
+    flipped = cv2.flip(image, 1)
     rotated_90 = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
     rotated_180 = cv2.rotate(image, cv2.ROTATE_180)
     rotated_270 = cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
-    return rotated_90,rotated_180,rotated_270
-    
+    return flipped, rotated_90,rotated_180,rotated_270
     
 
 def process_image_in_canny(file_path: str, output_dir):
@@ -15,18 +18,22 @@ def process_image_in_canny(file_path: str, output_dir):
     file_name_without_ext = os.path.splitext(file_name)[0]
     # 이미지 파일 읽기
     image = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
-    img_90, img_180, img_270 = rotate_image(image)
+    flipped, img_90, img_180, img_270 = rotate_image(image)
     rotate_path = file_path+"_rotate"
+    # canny 회전된 이미지 저장
+    output_path_flipped = os.path.join(rotate_path, f"{file_name_without_ext}_edge_flipped.jpg")
     output_path_90 = os.path.join(rotate_path, f"{file_name_without_ext}_rotated_90.jpg")
     output_path_180 = os.path.join(rotate_path, f"{file_name_without_ext}_rotated_180.jpg")
     output_path_270 = os.path.join(rotate_path, f"{file_name_without_ext}_rotated_270.jpg")
     print(f"이미지 변환 완료: {rotate_path}")
+
+    cv2.imwrite(output_path_flipped, flipped)
     cv2.imwrite(output_path_90, img_90)
     cv2.imwrite(output_path_180, img_180)
     cv2.imwrite(output_path_270, img_270)
     # Canny Edge 변환
     edges = cv2.Canny(image, 100, 200)
-    canny_90, canny_180, canny_270 = rotate_image(edges)
+    flipped, canny_90, canny_180, canny_270 = rotate_image(edges)
 
     
     # canny 저장할 경로 생성
@@ -36,9 +43,12 @@ def process_image_in_canny(file_path: str, output_dir):
     print(f"이미지 변환 완료: {output_path}")
     
     # canny 회전된 이미지 저장
+    output_path_flipped = os.path.join(output_dir + "_rotate", f"{file_name_without_ext}_edge_flipped.jpg")
     output_path_90 = os.path.join(output_dir + "_rotate", f"{file_name_without_ext}_edge_rotated_90.jpg")
     output_path_180 = os.path.join(output_dir + "_rotate", f"{file_name_without_ext}_edge_rotated_180.jpg")
     output_path_270 = os.path.join(output_dir + "_rotate", f"{file_name_without_ext}_edge_rotated_270.jpg")
+
+    cv2.imwrite(output_path_flipped, flipped)
     cv2.imwrite(output_path_90, canny_90)
     cv2.imwrite(output_path_180, canny_180)
     cv2.imwrite(output_path_270, canny_270)
@@ -55,9 +65,37 @@ def process_images_in_directory(input_dir, output_dir):
                 # 이미지 처리
                 process_image_in_canny(file_path, output_dir)
 
+
+def concat_images(input_dir):
+    for file_name in os.listdir(input_dir):
+        file_path = os.path.join(input_dir, file_name)
+        concatenated_tensors = []
+
+        if os.path.isfile(file_path):
+            if any(file_path.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png']):
+                image = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
+                # Size 변경
+                resized_image = cv2.resize(image, (224, 224))
+
+                # Convert the image to a PyTorch tensor
+                transform = transforms.Compose([
+                    transforms.ToTensor(),
+                ])
+
+                tensor_image = transform(resized_image)
+                concatenated_tensors.append(tensor_image)
+                                            
+        concatenated_tensor = torch.cat(concatenated_tensors, dim=0)
+        print(concatenated_tensor.shape)
+                
+        return concatenated_tensor
+
+
 # 입력 및 출력 디렉토리 경로 설정
 input_directory = '/Users/minseo/Desktop/2023-01/skt-ai-fellowship/k-ium/images/train_set'
 output_directory = '/Users/minseo/Desktop/2023-01/skt-ai-fellowship/k-ium/images/canny_train_set'
 
 # 이미지 변환 처리 실행
 process_images_in_directory(input_directory, output_directory)
+
+print(concat_images(input_directory))
