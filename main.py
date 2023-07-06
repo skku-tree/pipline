@@ -12,6 +12,10 @@ from sklearn.metrics import roc_auc_score
 import timm
 from torchsummary import summary
 
+def parse_img_path(img_path):
+  img_name = img_path.split('/')[-1]
+  return img_name[0:4]
+
 #TODO get all of argument
 # parser = argparse.ArgumentParser(
 #                     prog = 'inference',
