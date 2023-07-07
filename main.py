@@ -11,6 +11,8 @@ import pandas as pd
 from sklearn.metrics import roc_auc_score
 import timm
 from torchsummary import summary
+from torch.utils.data import random_split
+from torch.utils.data import DataLoader
 
 #TODO get all of argument
 # parser = argparse.ArgumentParser(
@@ -67,11 +69,27 @@ batch_size = 16
 # rotate_train_dataloader = DataLoader(rotate_train_dataset, batch_size=batch_size, shuffle=True)
 train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
 
+dataset_size = len(train_dataset)
+# train 데이터셋의 비율
+train_ratio = 0.7
+# test 데이터셋의 비율
+test_ratio = 0.3
+
+# # 데이터셋을 train 데이터셋과 test 데이터셋으로 분할
+# train_size = int(train_ratio * dataset_size)
+# test_size = dataset_size - train_size
+# train_dataset, test_dataset = random_split(train_dataset, [train_size, test_size])
+
+# # train_dataset과 test_dataset을 이용하여 DataLoader 생성
+# train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+# test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
+
 #TODO transformation and gan image creation
 
 #TODO import model from file
 
 model = timm.create_model('coatnet_3_rw_224.sw_in12k', pretrained=False)
+
 in_features = model.head.fc.in_features
 
 # 새로운 FC 레이어 생성
@@ -79,7 +97,10 @@ new_fc = nn.Linear(in_features, 22)
 
 # 모델의 마지막 FC 레이어를 새로운 FC 레이어로 대체
 model.head.fc = new_fc
+state_dict = torch.load("/home/minseopark/바탕화면/pipline/coatnet_3_rw_224.sw_in12k_100.pt")
+model.load_state_dict(state_dict)
 model.to("cuda")
+
 # 모델 구조 출력
 summary(model, input_size=(3, 224, 224))
 device = torch.device("cuda")
@@ -113,7 +134,7 @@ for epoch in range(num_epochs):
     model.eval()
     y_true = []
     y_pred = []
-    if epoch % 100 != 0:
+    if epoch % 50 != 0:
         continue
     with torch.no_grad():
         for batch_data, batch_labels in tqdm(train_dataloader):
@@ -125,7 +146,17 @@ for epoch in range(num_epochs):
             y_true.extend(batch_labels.tolist())
             y_pred.extend(outputs)
     auroc = roc_auc_score(y_true, y_pred)
-    print(f"Epoch [{epoch+1}/{num_epochs}], AUROC: {auroc}")
+    print(f"Epoch [{epoch+1}/{num_epochs}], TRAIN AUROC: {auroc}")
+    # for batch_data, batch_labels in tqdm(test_loader):
+    #         batch_data = batch_data.to(device)
+    #         outputs = model(batch_data)
+    #         outputs = torch.sigmoid(outputs)
+    #         outputs = outputs.tolist()
+    #         outputs = [[0 if i < 0.5 else 1 for i in results] for results in outputs]
+    #         y_true.extend(batch_labels.tolist())
+    #         y_pred.extend(outputs)
+    # auroc = roc_auc_score(y_true, y_pred)
+    # print(f"Epoch [{epoch+1}/{num_epochs}], TEST AUROC: {auroc}")
     torch.save(model.state_dict(), f"coatnet_3_rw_224.sw_in12k_{epoch}.pt")
 #TODO ensemble model
 
