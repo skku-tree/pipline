@@ -4,7 +4,7 @@ import argparse
 from torchvision import transforms
 from tqdm import tqdm
 import os
-from utils.dataLoader import CreateDataset
+from utils.dataLoader import *
 from torch.utils.data import DataLoader
 import torch.optim as optim
 import pandas as pd
@@ -15,8 +15,8 @@ from torchsummary import summary
 from torchsummary import summary
 import torch.nn.functional as F
 import numpy as np
-from sklearn.model_selection import train_test_split
-import random
+from torch.utils.data import random_split
+
 
 
 def parse_img_path(img_path):
@@ -53,16 +53,27 @@ rotate_train_images = [os.path.join(
     rotate_train_path, filename) for filename in os.listdir(rotate_train_path)]
 train_images = [os.path.join(train_path, filename)
                 for filename in os.listdir(train_path)]
-train_images.sort()
+
+lva_images = [image for image in train_images if 'LI-A' in image]
+lva_images.sort()
 # CSV 파일 로드
-data = pd.read_csv('/home/minseopark/바탕화면/pipline/train.csv')
+df = pd.read_csv('/home/minseopark/바탕화면/pipline/train.csv')
+LVA_df = df[["L_ICA", "L_PCOM", "L_AntChor", "L_ACA","L_ACOM","L_MCA"]]
+
+zero_row_indices = LVA_df[(LVA_df == 0).all(axis=1)].index.tolist()
+
+lva_images = [image for i, image in enumerate(lva_images) if i not in zero_row_indices]
+
+LVA_df = LVA_df[(LVA_df != 0).any(axis=1)].values.tolist()
+# LVA_df["detected"] = 0
+# LVA_df.loc[(LVA_df == 1).any(axis=1), "detected"] = 1
+
 
 # 인덱스 열 제외하고 레이블 생성
-labels = data.drop('Index', axis=1).values.tolist()
+# labels = data.drop('Index', axis=1).values.tolist()
 
 # labels를 Tensor로 변환
-labels_tensor = torch.tensor(labels, dtype=torch.float32)
-
+labels_tensor = torch.tensor(LVA_df, dtype=torch.float32)
 
 # 이미지 전처리를 위한 transform 설정
 preprocess_transform = transforms.Compose([
@@ -72,104 +83,41 @@ preprocess_transform = transforms.Compose([
                          0.229, 0.224, 0.225])  # 정규화
 ])
 
-# aneurysm label이 0인 데이터와 1인 데이터 분리
-label_data = data.values.tolist()   # index, labels 모두 포함된 리스트
-label_data_0 = []   # aneurysm label이 0인 것만 뽑아내기
-image_data_0 = []
-label_data_1 = []   # aneurysm label이 1인 것만 뽑아내기
-image_data_1 = []
-
-image_dict = {}
-count = 0
-# image dictionary 만들기 (편의상)
-for i, img in enumerate(train_images):
-    if i % 8 == 0:
-        image_dict[parse_img_path(img)] = [img]
-    else:
-        image_dict[parse_img_path(img)].append(img)
-
-# label 0, 1 분류하기
-for ld in label_data:
-    idx = ld[0]
-
-    if ld[1] == 0:
-        label_data_0.append(ld)
-        image_data_0 = image_data_0 + image_dict[str(idx)]
-    else:
-        label_data_1.append(ld)
-        image_data_1 = image_data_1 + image_dict[str(idx)]
-
-# 두 리스트 길이의 합이 기존 리스트와 같은지 확인
-if len(label_data_0) + len(label_data_1) != len(label_data):
-    exit()
-else:
-    print(f"aneurysm label이 0인 label 데이터 개수 : {len(label_data_0)}")
-    print(f"aneurysm label이 0인 image 데이터 개수 : {len(image_data_0)}")
-    print(f"aneurysm label이 1인 label 데이터 개수 : {len(label_data_1)}")
-    print(f"aneurysm label이 1인 image 데이터 개수 : {len(image_data_1)}")
-
-# Training data와 Validation data 분리
-train_label_0, val_label_0 = train_test_split(
-    label_data_0, test_size=0.2, random_state=42)
-train_label_1, val_label_1 = train_test_split(
-    label_data_1, test_size=0.2, random_state=42)
-
-train_labels = train_label_0 + train_label_1
-val_labels = val_label_0 + val_label_1
-random.seed(42)   # randomization results are always the same for each run
-random.shuffle(train_labels)
-random.shuffle(val_labels)
-
-train_images = []
-val_images = []
-for l in train_labels:
-    train_images = train_images + image_dict[str(l[0])]
-for l in val_labels:
-    val_images = val_images + image_dict[str(l[0])]
 
 
-train_labels = [sublist[1:] for sublist in train_labels]
-val_labels = [sublist[1:] for sublist in val_labels]
+train_dataset = CreateAngleDataset(
+    lva_images, labels_tensor, transform=preprocess_transform)
 
-# labels를 Tensor로 변환
-train_labels = torch.tensor(train_labels, dtype=torch.float32)
-val_labels = torch.tensor(val_labels, dtype=torch.float32)
+# train_size = int(0.8 * len(train_dataset)) 
+# val_size = len(train_dataset) - train_size  
 
-# 이미지 경로를 데이터셋으로 변환
-# canny_train_dataset = CreateDataset(canny_train_images, transform=preprocess_transform)
-# rotate_train_dataset = CreateDataset(rotate_train_images, transform=preprocess_transform)
-train_dataset = CreateDataset(
-    train_images, train_labels, transform=preprocess_transform)
-val_dataset = CreateDataset(val_images, val_labels,
-                            transform=preprocess_transform)
+# train_dataset, val_dataset = random_split(train_dataset, [train_size, val_size])
 
 batch_size = 16
-# canny_train_dataloader = DataLoader(canny_train_dataset, batch_size=batch_size, shuffle=True)
-# rotate_train_dataloader = DataLoader(rotate_train_dataset, batch_size=batch_size, shuffle=True)
+
 train_dataloader = DataLoader(
     train_dataset, batch_size=batch_size, shuffle=True)
-val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
+# val_dataloader = DataLoader(
+#     val_dataset, batch_size=batch_size, shuffle=True)
 
-#TODO transformation and gan image creation
-
-# TODO import model from file
 
 model = timm.create_model('coatnet_3_rw_224.sw_in12k', pretrained=False)
 
 in_features = model.head.fc.in_features
 
 # 새로운 FC 레이어 생성
-new_fc = nn.Linear(in_features, 22)
+new_fc = nn.Linear(in_features, 6)
 
 # 모델의 마지막 FC 레이어를 새로운 FC 레이어로 대체
 model.head.fc = new_fc
-# state_dict = torch.load("/home/minseopark/바탕화면/pipline/coatnet_3_rw_224.sw_in12k_200.pt")
+# state_dict = torch.load("/home/minseopark/바탕화면/pipline/coatnet_3_rw_224.sw_in12k_50.pt")
 # model.load_state_dict(state_dict)
 model.to("cuda")
 
-# 모델 구조 출력
-summary(model, input_size=(3, 224, 224))
+
+
+
 
 device = torch.device("cuda")
 
@@ -179,7 +127,7 @@ for epoch in range(num_epochs):
     running_loss = 0.0
 
     criterion = nn.BCELoss()
-    optimizer = optim.SGD(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=1e-5)
 
     for inputs, labels in tqdm(train_dataloader):
         # GPU를 사용하는 경우, 데이터를 GPU로 이동
@@ -200,61 +148,44 @@ for epoch in range(num_epochs):
     
     print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss}")
 
-    model.eval()
-    y_true = []
-    y_pred = []
-    y_true_train = []
-    y_pred_train = []
-    y_pred_prob = []
-    # if epoch % 50 != 0:
-    #     continue
-    with torch.no_grad():
-        for batch_data, batch_labels in tqdm(train_dataloader):
-            batch_data = batch_data.to(device)
-            outputs = model(batch_data)
-            outputs = torch.sigmoid(outputs)
-            outputs = outputs.tolist()
-            outputs = [[0 if i < 0.5 else 1 for i in results]
-                       for results in outputs]
-            y_true_train.extend(batch_labels.tolist())
-            y_pred_train.extend(outputs)
     
 
-        for batch_data, batch_labels in tqdm(val_dataloader):
-            batch_data = batch_data.to(device)
-            outputs = model(batch_data)
-            outputs = torch.sigmoid(outputs)
-            outputs = outputs.tolist()
-            y_pred_prob.extend(outputs)
-            outputs = [[0 if i < 0.5 else 1 for i in results]
-                       for results in outputs]
-            y_true.extend(batch_labels.tolist())
-            y_pred.extend(outputs)
-
-    y_true = np.array(y_true).astype(int).tolist()
-
-    # aneurysm 여부에 대한 auroc 값만 계산하기
-    aneurysm_true = [sublist[0] for sublist in y_true]
-    aneurysm_pred = [sublist[0] for sublist in y_pred_prob]
-    auroc_train = roc_auc_score(aneurysm_true, aneurysm_pred)
-    aneurysm_true_train = [sublist[0] for sublist in y_true_train]
-    aneurysm_pred_train = [sublist[0] for sublist in y_pred_train]
-    auroc = roc_auc_score(aneurysm_true_train, aneurysm_pred_train)
-
-    # 위치 정보에 대한 accuracy 계산하기
-    location_true = [sublist[1:] for sublist in y_true]
-    location_pred = [sublist[1:] for sublist in y_pred]
-    location_true = torch.tensor(
-        [item for sublist in location_true for item in sublist])
-    location_pred = torch.tensor(
-        [item for sublist in location_pred for item in sublist])
-    accuracy = (location_pred == location_true).sum().item() / \
-        len(location_true)
-
-    print(
-        f"Epoch [{epoch+1}/{num_epochs}], AUROC: {auroc}, Accuracy: {accuracy}")
-    torch.save(model.state_dict(),
-               f"coatnet_3_rw_224.sw_in12k_{epoch}.pt")
+    if (epoch + 1) % 20 != 0:
+        continue
+    model.eval()
+    with torch.no_grad():
+        detect_predicted = []
+        detect_true = []
+        for inputs, labels in tqdm(train_dataloader):
+            inputs = inputs.to(device)
+            outputs = model(inputs)
+            outputs = torch.squeeze(outputs)
+            
+            detect_predicted.extend(outputs.detach().cpu().numpy())
+            detect_true.extend(labels.numpy())
+        detect_predicted = np.array(detect_predicted)
+        detect_true = np.array(detect_true)
+        detect_predicted = np.where(detect_predicted > 0.5, 1, 0)
+        auroc_train = roc_auc_score(detect_true, detect_predicted, multi_class='ovr')
+        print(
+            f"Epoch [{epoch+1}/{num_epochs}],AUROC_Train: {auroc_train}")
+        detect_predicted = []
+        detect_true = []
+        # for inputs, labels in tqdm(val_dataloader):
+        #     inputs = inputs.to(device)
+        #     outputs = model(inputs)
+        #     outputs = torch.squeeze(outputs)
+            
+        #     detect_predicted.extend(outputs.detach().cpu().numpy())
+        #     detect_true.extend(labels.numpy())
+        # detect_predicted = np.array(detect_predicted)
+        # detect_true = np.array(detect_true)
+        # detect_predicted = np.where(detect_predicted > 0.5, 1, 0)
+        # auroc_train = roc_auc_score(detect_true, detect_predicted, multi_class='ovr')
+        # print(
+        #     f"Epoch [{epoch+1}/{num_epochs}],AUROC_Train: {auroc_train}")
+        # torch.save(model.state_dict(),
+        #         f"coatnet_3_rw_224.sw_in12k_{epoch}.pt")
 
 # TODO ensemble model
 
